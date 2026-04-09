@@ -1,8 +1,3 @@
-# Obtaining and processing CVE json **files**
-# The code is to download nvdcve zip files from NIST since 2002 to the current year,
-# unzip and append all the JSON files together,
-# and extracts all the entries from json files of the projects.
-
 import datetime
 import time
 import json
@@ -174,29 +169,41 @@ def import_cves():
     Gathering CVE records by processing JSON data directly from NVD API 2.0.
     Uses pagination and defensive pacing to avoid API rate limits without a key.
     """
+
     cf.logger.info('-' * 70)
     if db.table_exists('cve'):
         cf.logger.warning('The cve table already exists, but we are overwriting it from scratch...')
 
     base_url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-    start_index = 0
     results_per_page = 2000
-    total_results = None
     all_cves_raw = []
 
-    #############################TEST####################
-    MAX_TEST_CVES = 2000 #1543 references et 18 repo avec 8000
-    total_results = 341829
-    start_index = max(0, total_results - MAX_TEST_CVES)
-    cf.logger.info(f"Total CVEs: {total_results}. Starting at index {start_index} to get the latest {MAX_TEST_CVES}.")
-
-    #####################################################
+    DEBUG_MODE = False 
+    MAX_TEST_CVES = 4000
+    try:
+        cf.logger.info("Fetching initial metadata from NVD...")
+        response = requests.get(f"{base_url}?resultsPerPage=1", timeout=30)
+        if response.status_code != 200:
+            cf.logger.error("Failed to connect to NVD API.")
+            return
+        
+        data = response.json()
+        total_results = data.get("totalResults", 0)
+    except Exception as e:
+        cf.logger.error(f"Error during initial connection: {e}")
+        return
+    
+    if DEBUG_MODE:
+        start_index = max(0, total_results - MAX_TEST_CVES)
+        cf.logger.info(f"[DEBUG MODE] Fetching last {MAX_TEST_CVES} CVEs (starting at {start_index}).")
+    else:
+        start_index = 0
+        cf.logger.info(f"Fetching all {total_results} CVEs.")
     cf.logger.info('Starting NVD API v2.0 download (without API key)...')
 
-    #while (total_results is None or start_index < total_results) and start_index < MAX_TEST_CVES:
     while start_index < total_results:
         url = f"{base_url}?startIndex={start_index}&resultsPerPage={results_per_page}"
-        cf.logger.info(f"Fetching {url}...")
+        cf.logger.info(f"Fetching {min(start_index + results_per_page, total_results)} / {total_results}...")
 
         try:
             response = requests.get(url, timeout=30)
@@ -214,8 +221,7 @@ def import_cves():
                 start_index += results_per_page
                 cf.logger.info(f"Progress: {min(start_index, total_results)} / {total_results} CVEs downloaded.")
 
-                # 5 req/30s
-                time.sleep(6)
+                time.sleep(6) # 5 req/30s
 
             elif response.status_code in [403, 429, 503]:
                 cf.logger.warning(f"NVD API rate limit or server error (Code {response.status_code}). Sleeping 15s...")
