@@ -2,7 +2,7 @@ import pandas as pd
 import requests
 import time
 from math import floor
-from github import Github
+from github import Github, Auth
 from github.GithubException import BadCredentialsException
 
 import configuration as cf
@@ -55,7 +55,7 @@ def find_unavailable_urls(urls):
     return unavailable_urls
 
 
-def convert_runtime(start_time, end_time) -> (int, int, int):
+def convert_runtime(start_time, end_time) -> tuple[int, int, int]:
     """
     converts runtime of the slice of code more readable format
     """
@@ -117,7 +117,8 @@ def get_github_meta(repo_url, username, token):
     if username == 'None':
         git_link = Github()
     else:
-        git_link = Github(login_or_token=token, user_agent=username)
+        auth = Auth.Token(token)
+        git_link = Github(auth=auth, user_agent=username)
 
     try:
         git_user = git_link.get_user(owner)
@@ -189,17 +190,17 @@ def store_tables(df_fixes):
             if df_commit is not None:
                 with db.conn:
                     # ----------------appending each project data to the tables-------------------------------
-                    df_commit = df_commit.applymap(str)
+                    df_commit = df_commit.map(str)
                     df_commit.to_sql(name="commits", con=db.conn, if_exists="append", index=False)
                     cf.logger.debug(f'#Commits: {len(df_commit)}')
 
                     if df_file is not None:
-                        df_file = df_file.applymap(str)
+                        df_file = df_file.map(str)
                         df_file.to_sql(name="file_change", con=db.conn, if_exists="append", index=False)
                         cf.logger.debug(f'#Files: {len(df_file)}')
 
                     if df_method is not None:
-                        df_method = df_method.applymap(str)
+                        df_method = df_method.map(str)
                         df_method.to_sql(name="method_change", con=db.conn, if_exists="append", index=False)
                         cf.logger.debug(f'#Methods: {len(df_method)}')
 

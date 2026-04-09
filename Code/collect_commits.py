@@ -5,7 +5,8 @@ import uuid
 
 import pandas as pd
 import configuration as cf
-from guesslang import Guess
+from pygments.lexers import guess_lexer_for_filename
+from pygments.util import ClassNotFound
 from pydriller import Repository
 from utils import log_commit_urls
 
@@ -77,10 +78,12 @@ def extract_project_links(df_master):
     """
     extracts all the reference urls from CVE records that match to the repo commit urls
     """
-    df_fixes = pd.DataFrame(columns=fixes_columns)
     git_url = r'(((?P<repo>(https|http):\/\/(bitbucket|github|gitlab)\.(org|com)\/(?P<owner>[^\/]+)\/(?P<project>[^\/]*))\/(commit|commits)\/(?P<hash>\w+)#?)+)'
     cf.logger.info('-' * 70)
     cf.logger.info('Extracting all reference URLs from CVEs...')
+    
+    rows_list = []
+    
     for i in range(len(df_master)):
         ref_list = ast.literal_eval(df_master['reference_json'].iloc[i])
         if len(ref_list) > 0:
@@ -93,20 +96,25 @@ def extract_project_links(df_master):
                         'hash': link.group('hash'),
                         'repo_url': link.group('repo').replace(r'http:', r'https:')
                     }
-                    df_fixes = df_fixes.append(pd.Series(row), ignore_index=True)
+                    rows_list.append(row)
 
+    df_fixes = pd.DataFrame(rows_list, columns=fixes_columns)
     df_fixes = df_fixes.drop_duplicates().reset_index(drop=True)
+    
     cf.logger.info(f'Found {len(df_fixes)} references to vulnerability fixing commits')
     return df_fixes
 
 
-def guess_pl(code):
+def guess_pl(filename, code):
     """
-    :returns guessed programming language of the code
+    :returns guessed programming language of the code using Pygments
     """
-    if code:
-        return Guess().language_name(code.strip())
-    else:
+    if not code or not code.strip():
+        return 'unknown'
+    try:
+        lexer = guess_lexer_for_filename(filename, code.strip())
+        return lexer.name
+    except ClassNotFound:
         return 'unknown'
 
 
@@ -257,7 +265,7 @@ def get_files(commit):
             for file in commit.modified_files:
                 cf.logger.debug(f'Processing file {file.filename} in {commit.hash}')
                 # programming_language = (file.filename.rsplit(".')[-1] if '.' in file.filename else None)
-                programming_language = guess_pl(file.source_code)  # guessing the programming language of fixed code
+                programming_language = guess_pl(file.filename, file.source_code)  # guessing the programming language of fixed code
                 file_change_id = uuid.uuid4().fields[-1]
 
                 file_row = {
@@ -353,7 +361,7 @@ def extract_commits(repo_url, hashes):
             repo_methods.extend(commit_methods)
         except Exception as e:
             cf.logger.warning(f'Problem while fetching the commits: {e}')
-            pass
+            return [], []
 
     if repo_commits:
         df_repo_commits = pd.DataFrame.from_dict(repo_commits)

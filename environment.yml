@@ -3,16 +3,15 @@ channels:
   - conda-forge
   - defaults
 dependencies:
- - python~=3.8
- - pandas~=1.2
- - numpy~=1.19
- - requests~=2.24
- - PyGithub~=1.54
- - tensorflow==2.5.0
- - jupyter
- - seaborn
- - matplotlib
- - pip
- - pip:
-   - PyDriller~=2.0
-   - guesslang~=2.0.3
+  - python>=3.12
+  - pandas>=2.1.0
+  - numpy>=1.26.0
+  - requests>=2.30.0
+  - pygithub>=2.0.0
+  - pygments>=2.15.0
+  - jupyter
+  - seaborn
+  - matplotlib
+  - pip
+  - pip:
+    - PyDriller>=2.0

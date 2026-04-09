@@ -4,6 +4,7 @@
 # and extracts all the entries from json files of the projects.
 
 import datetime
+import time
 import json
 import os
 import re
@@ -19,15 +20,6 @@ import configuration as cf
 import database as db
 
 # ---------------------------------------------------------------------------------------------------------------------
-
-urlhead = 'https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-'
-urltail = '.json.zip'
-initYear = 2002
-currentYear = datetime.datetime.now().year
-
-# Consider only current year CVE records when sample_limit>0 for the simplified example.
-if cf.SAMPLE_LIMIT > 0:
-    initYear = currentYear
 
 df = pd.DataFrame()
 
@@ -49,60 +41,98 @@ cwe_columns = ['cwe_id', 'cwe_name', 'description', 'extended_description', 'url
 
 # ---------------------------------------------------------------------------------------------------------------------
 
-
-def rename_columns(name):
-    """
-    converts the other cases of string to snake_case, and further processing of column names.
-    """
-    name = name.split('.', 2)[-1].replace('.', '_')
-    name = re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
-    name = name.replace('cvss_v', 'cvss').replace('_data', '_json').replace('description_json', 'description')
-    return name
-
-
 def preprocess_jsons(df_in):
     """
-    Flattening CVE_Items and removing the duplicates
-    :param df_in: merged dataframe of all years json files
+    Flattening NVD API v2.0 JSON structures to match the legacy CVEfixes database schema.
+    :param df_in: dataframe containing the raw 'cve' objects from v2.0 API
     """
-    cf.logger.info('Flattening CVE items and removing the duplicates...')
-    cve_items = json_normalize(df_in['CVE_Items'])
-    df_cve = pd.concat([df_in.reset_index(), cve_items], axis=1)
-
-    # Removing all CVE entries which have null values in reference-data at [cve.references.reference_data] column
-    df_cve = df_cve[df_cve['cve.references.reference_data'].str.len() != 0]
-
-    # Re-ordering and filtering some redundant and unnecessary columns
-    df_cve = df_cve.rename(columns={'cve.CVE_data_meta.ID': 'cve_id'})
-    df_cve = df_cve.drop(
-        labels=[
-            'index',
-            'CVE_Items',
-            'cve.data_type',
-            'cve.data_format',
-            'cve.data_version',
-            'CVE_data_type',
-            'CVE_data_format',
-            'CVE_data_version',
-            'CVE_data_numberOfCVEs',
-            'CVE_data_timestamp',
-            'cve.CVE_data_meta.ASSIGNER',
-            'configurations.CVE_data_version',
-            'impact.baseMetricV2.cvssV2.version',
-            'impact.baseMetricV2.exploitabilityScore',
-            'impact.baseMetricV2.impactScore',
-            'impact.baseMetricV3.cvssV3.version',
-        ], axis=1, errors='ignore')
-
-    # renaming the column names
-    df_cve.columns = [rename_columns(i) for i in df_cve.columns]
-
+    cf.logger.info('Flattening API v2.0 CVE items...')
+    
+    flattened_data = []
+    
+    for row in df_in['cve']:
+        if not isinstance(row, dict):
+            continue
+            
+        cve_id = row.get('id', '')
+        published = row.get('published', '')
+        last_modified = row.get('lastModified', '')
+        
+        description = ""
+        for desc in row.get('descriptions', []):
+            if desc.get('lang') == 'en':
+                description = desc.get('value', '')
+                break
+                
+        references = row.get('references', [])
+        reference_json = json.dumps(references)
+        
+        weaknesses = row.get('weaknesses', [])
+        problemtype_json = json.dumps(weaknesses)
+        
+        metrics = row.get('metrics', {})
+        
+        def get_metric(metric_key):
+            m_list = metrics.get(metric_key, [])
+            if m_list and isinstance(m_list, list) and len(m_list) > 0:
+                return m_list[0]
+            return {}
+            
+        v2_metric = get_metric('cvssMetricV2')
+        v3_metric = get_metric('cvssMetricV31') or get_metric('cvssMetricV30')
+        
+        flat = {
+            'cve_id': cve_id,
+            'published_date': published,
+            'last_modified_date': last_modified,
+            'description': description,
+            'nodes': '',
+            'severity': v2_metric.get('baseSeverity', ''),
+            
+            'obtain_all_privilege': str(v2_metric.get('obtainAllPrivilege', '')),
+            'obtain_user_privilege': str(v2_metric.get('obtainUserPrivilege', '')),
+            'obtain_other_privilege': str(v2_metric.get('obtainOtherPrivilege', '')),
+            'user_interaction_required': str(v2_metric.get('userInteractionRequired', '')),
+            
+            # CVSS V2
+            'cvss2_vector_string': v2_metric.get('cvssData', {}).get('vectorString', ''),
+            'cvss2_access_vector': v2_metric.get('cvssData', {}).get('accessVector', ''),
+            'cvss2_access_complexity': v2_metric.get('cvssData', {}).get('accessComplexity', ''),
+            'cvss2_authentication': v2_metric.get('cvssData', {}).get('authentication', ''),
+            'cvss2_confidentiality_impact': v2_metric.get('cvssData', {}).get('confidentialityImpact', ''),
+            'cvss2_integrity_impact': v2_metric.get('cvssData', {}).get('integrityImpact', ''),
+            'cvss2_availability_impact': v2_metric.get('cvssData', {}).get('availabilityImpact', ''),
+            'cvss2_base_score': str(v2_metric.get('cvssData', {}).get('baseScore', '')),
+            
+            # CVSS V3
+            'cvss3_vector_string': v3_metric.get('cvssData', {}).get('vectorString', ''),
+            'cvss3_attack_vector': v3_metric.get('cvssData', {}).get('attackVector', ''),
+            'cvss3_attack_complexity': v3_metric.get('cvssData', {}).get('attackComplexity', ''),
+            'cvss3_privileges_required': v3_metric.get('cvssData', {}).get('privilegesRequired', ''),
+            'cvss3_user_interaction': v3_metric.get('cvssData', {}).get('userInteraction', ''),
+            'cvss3_scope': v3_metric.get('cvssData', {}).get('scope', ''),
+            'cvss3_confidentiality_impact': v3_metric.get('cvssData', {}).get('confidentialityImpact', ''),
+            'cvss3_integrity_impact': v3_metric.get('cvssData', {}).get('integrityImpact', ''),
+            'cvss3_availability_impact': v3_metric.get('cvssData', {}).get('availabilityImpact', ''),
+            'cvss3_base_score': str(v3_metric.get('cvssData', {}).get('baseScore', '')),
+            'cvss3_base_severity': v3_metric.get('cvssData', {}).get('baseSeverity', ''),
+            
+            'exploitability_score': str(v3_metric.get('exploitabilityScore', v2_metric.get('exploitabilityScore', ''))),
+            'impact_score': str(v3_metric.get('impactScore', v2_metric.get('impactScore', ''))),
+            'ac_insuf_info': str(v2_metric.get('acInsufInfo', '')),
+            
+            'reference_json': reference_json,
+            'problemtype_json': problemtype_json
+        }
+        flattened_data.append(flat)
+        
+    df_cve = pd.DataFrame(flattened_data)
+    
     # Check and add columns if they are not present in the dataframe
     for col in ordered_cve_columns:
         if col not in df_cve.columns:
             df_cve[col] = ""
-
-    # ordering the cve columns
+            
     df_cve = df_cve[ordered_cve_columns]
 
     return df_cve
@@ -141,40 +171,77 @@ def assign_cwes_to_cves(df_cve: pd.DataFrame):
 
 def import_cves():
     """
-    gathering CVE records by processing JSON files.
+    Gathering CVE records by processing JSON data directly from NVD API 2.0.
+    Uses pagination and defensive pacing to avoid API rate limits without a key.
     """
     cf.logger.info('-' * 70)
     if db.table_exists('cve'):
-        cf.logger.warning('The cve table already exists, loading and continuing extraction...')
-        # df_cve = pd.read_sql(sql="SELECT * FROM cve", con=db.conn)
-    else:
-        for year in range(initYear, currentYear + 1):
-            extract_target = 'nvdcve-1.1-' + str(year) + '.json'
-            zip_file_url = urlhead + str(year) + urltail
+        cf.logger.warning('The cve table already exists, but we are overwriting it from scratch...')
 
-            # Check if the directory already has the json file or not ?
-            if os.path.isfile(Path(cf.DATA_PATH) / 'json' / extract_target):
-                cf.logger.warning(f'Reusing the {year} CVE json file that was downloaded earlier...')
-                json_file = Path(cf.DATA_PATH) / 'json' / extract_target
+    base_url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+    start_index = 0
+    results_per_page = 2000
+    total_results = None
+    all_cves_raw = []
+
+    #############################TEST####################
+    MAX_TEST_CVES = 2000 #1543 references et 18 repo avec 8000
+    total_results = 341829
+    start_index = max(0, total_results - MAX_TEST_CVES)
+    cf.logger.info(f"Total CVEs: {total_results}. Starting at index {start_index} to get the latest {MAX_TEST_CVES}.")
+
+    #####################################################
+    cf.logger.info('Starting NVD API v2.0 download (without API key)...')
+
+    #while (total_results is None or start_index < total_results) and start_index < MAX_TEST_CVES:
+    while start_index < total_results:
+        url = f"{base_url}?startIndex={start_index}&resultsPerPage={results_per_page}"
+        cf.logger.info(f"Fetching {url}...")
+
+        try:
+            response = requests.get(url, timeout=30)
+
+            if response.status_code == 200:
+                data = response.json()
+                
+                if total_results is None:
+                    total_results = data.get("totalResults", 0)
+                    cf.logger.info(f"Total CVEs to download: {total_results}")
+
+                vulns = data.get("vulnerabilities", [])
+                all_cves_raw.extend(vulns)
+
+                start_index += results_per_page
+                cf.logger.info(f"Progress: {min(start_index, total_results)} / {total_results} CVEs downloaded.")
+
+                # 5 req/30s
+                time.sleep(6)
+
+            elif response.status_code in [403, 429, 503]:
+                cf.logger.warning(f"NVD API rate limit or server error (Code {response.status_code}). Sleeping 15s...")
+                time.sleep(15)
             else:
-                # url_to_open = urlopen(zip_file_url, timeout=10)
-                r = requests.get(zip_file_url)
-                z = ZipFile(BytesIO(r.content))  # BytesIO keeps the file in memory
-                json_file = z.extract(extract_target, Path(cf.DATA_PATH) / 'json')
+                cf.logger.error(f"Unexpected HTTP error {response.status_code}. Sleeping 15s...")
+                time.sleep(15)
 
-            with open(json_file) as f:
-                yearly_data = json.load(f)
-                if year == initYear:  # initialize the df_methods by the first year data
-                    df_cve = pd.DataFrame(yearly_data)
-                else:
-                    df_cve = df_cve.append(pd.DataFrame(yearly_data))
-                cf.logger.info(f'The CVE json for {year} has been merged')
+        except requests.exceptions.RequestException as e:
+            cf.logger.warning(f"Network error: {e}. Sleeping 15s before retrying...")
+            time.sleep(15)
 
-        df_cve = preprocess_jsons(df_cve)
-        df_cve = df_cve.applymap(str)
-        assert df_cve.cve_id.is_unique, 'Primary keys are not unique in cve records!'
-        df_cve.to_sql(name="cve", con=db.conn, if_exists="replace", index=False)
-        cf.logger.info('All CVEs have been merged into the cve table')
-        cf.logger.info('-' * 70)
+    cf.logger.info("Download complete. Creating DataFrame...")
+    
+    df_cve = pd.DataFrame(all_cves_raw)
 
-        assign_cwes_to_cves(df_cve=df_cve)
+    cf.logger.info("Preprocessing the JSON structures...")
+    df_cve = preprocess_jsons(df_cve)
+    df_cve = df_cve.map(str)
+    
+    assert df_cve.cve_id.is_unique, 'Primary keys are not unique in cve records!'
+    
+    cf.logger.info("Saving to SQLite database...")
+    df_cve.to_sql(name="cve", con=db.conn, if_exists="replace", index=False)
+    
+    cf.logger.info('All CVEs have been merged into the cve table')
+    cf.logger.info('-' * 70)
+
+    assign_cwes_to_cves(df_cve=df_cve)

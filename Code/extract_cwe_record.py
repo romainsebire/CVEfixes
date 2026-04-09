@@ -93,18 +93,37 @@ def parse_cwes(str1):
 
 def add_cwe_class(problem_col):
     """
-    returns CWEs of the CVE.
+    returns CWEs of the CVE based on NVD API v2.0 'weaknesses' structure.
     """
     cwe_classes = []
+    
     for p in problem_col:
-        des = str(p).replace("'", '"')
-        des = json.loads(des)
-        for cwes in json_normalize(des)["description"]:  # for every cwe of each cve.
-            if len(cwes) != 0:
-                cwe_classes.append([cwe_id for cwe_id in json_normalize(cwes)["value"]])
+        try:
+            if not p or str(p) == 'nan':
+                des = []
+            else:
+                des = json.loads(str(p))
+                
+            current_cwes = []
+            
+            if isinstance(des, list):
+                for weakness in des:
+                    if 'description' in weakness and isinstance(weakness['description'], list):
+                        for d in weakness['description']:
+                            val = d.get('value', '')
+                            if val:
+                                current_cwes.append(val)
+            
+            if current_cwes:
+                cwe_classes.append(current_cwes)
             else:
                 cwe_classes.append(["unknown"])
+                
+        except Exception as e:
+            cf.logger.warning(f"Error parsing CWE JSON for a record: {e}")
+            cwe_classes.append(["unknown"])
 
     assert len(problem_col) == len(cwe_classes), \
         "Sizes are not equal - Problem occurred while fetching the cwe classification records!"
+    
     return cwe_classes
