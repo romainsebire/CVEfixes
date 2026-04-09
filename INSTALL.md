@@ -1,5 +1,29 @@
 # Instructions to use CVEfixes
 
+## Installation
+
+This modern fork requires **Python 3.12 or higher**. You can install the dependencies using either `pip` or `conda`.
+
+### Option A: Using pip (Virtual Environment)
+This is the recommended approach to ensure you get the exact frozen versions that are guaranteed to work.
+```bash
+# 1. Create a virtual environment
+python3 -m venv venv
+source venv/bin/activate  # On Windows use: venv\Scripts\activate
+
+# 2. Install the frozen dependencies
+pip install -r requirements.frozen.txt
+```
+
+### Option B: Using Conda
+If you prefer Anaconda or Miniconda, an environment.yml file is provided.
+```bash
+# 1. Create the environment
+conda env create -f environment.yml
+
+# 2. Activate the environment
+conda activate CVEfixes
+```
 
 ## Converting the CVEfixes dataset from the compressed SQL dump
 

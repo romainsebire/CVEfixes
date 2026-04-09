@@ -1,6 +1,22 @@
 [![source under MIT licence](https://img.shields.io/badge/source%20license-MIT-green)](LICENSE.txt)
 [![data under CC BY 4.0 license](https://img.shields.io/badge/data%20license-CC%20BY%204.0-green)](https://creativecommons.org/licenses/by/4.0/)
 
+# CVEfixes (Modernized Fork)
+
+> **⚠️ IMPORTANT NOTICE:** This is a modernized fork of the original [secureIT-project/CVEfixes](https://github.com/secureIT-project/CVEfixes).
+> The original repository relies on deprecated technologies (NVD API v1.1, Python 3.8, Pandas < 2.0) that prevent it from running today.
+>
+> **Key Upgrades in this Fork:**
+> * **NVD API v2.0 Ready:** Fully migrated to the new NIST NVD JSON REST API. Includes intelligent rate-limit handling (defensive pacing) to run seamlessly without requiring an API key.
+> * **Python 3.12+ Support:** Codebase fully updated to run on modern Python environments.
+> * **Pandas 2.0+ Compliant:** Refactored to remove all deprecated `.append()` and `.applymap()` functions, using highly optimized native lists and `pd.concat()`.
+> * **Modern Language Detection:** Replaced the abandoned, TensorFlow-heavy `guesslang` library with the lightweight and accurate `pygments` lexer.
+> * **Updated GitHub Auth:** Uses modern `Auth.Token` authentication for PyGithub to prevent deprecation warnings.
+
+---
+
+*(The original project documentation follows below)*
+
 # CVEfixes: Automated Collection of Vulnerabilities and Their Fixes from Open-Source Software
 
 _CVEfixes_ is a comprehensive vulnerability dataset that is automatically
