@@ -148,8 +148,18 @@ def assign_cwes_to_cves(df_cve: pd.DataFrame):
 
     no_ref_cwes = set(list(df_cwes_class.cwe_id)).difference(set(list(df_cwes.cwe_id)))
     if len(no_ref_cwes) > 0:
-        cf.logger.debug('List of CWEs from CVEs that are not associated to cwe table are as follows:')
-        cf.logger.debug(no_ref_cwes)
+        cf.logger.warning(f'Found {len(no_ref_cwes)} orphaned CWEs from NVD not present in the latest MITRE dictionary. Creating placeholders...')
+        missing_cwes_list = []
+        for missing_cwe in no_ref_cwes:
+            missing_cwes_list.append({
+                'cwe_id': missing_cwe,
+                'cwe_name': 'Unknown/Deprecated NVD CWE',
+                'description': 'This CWE ID was used by NVD but is not present in the latest MITRE XML dictionary.',
+                'extended_description': '',
+                'url': '',
+                'is_category': False
+            })
+        df_cwes = pd.concat([df_cwes, pd.DataFrame(missing_cwes_list)], ignore_index=True)
 
     # Applying the assertion to cve-, cwe- and cwe_classification table.
     assert df_cwes.cwe_id.is_unique, "Primary keys are not unique in cwe records!"
